@@ -9,31 +9,46 @@ main :: proc() {
 		fmt.println(err)
 		os.exit(1)
 	}
+
+	fmt.println(template.instructions)
 }
 
 load_template :: proc(path: string) -> (template: Template, err: Template_Error) {
 	source, ok := os.read_entire_file(path)
 	if !ok do return template, .File_Error
 
-	template.source = source
+	template.source = string(source)
 
 	tokenizer := Tokenizer {
-		source = source,
+		source = template.source,
 	}
 
-	for {
+	instructions := make([dynamic]Instruction)
+
+	token_loop: for {
 		token, err := next_token(&tokenizer)
 		if err != nil {
 			fmt.println(err)
 			return
 		}
 
-		fmt.println()
-		fmt.printfln("%v:", token.kind)
-		fmt.println(string(token.text))
+		instruction := Instruction{}
 
-		if token.kind == .EOF do break
+		switch token.kind {
+		case .EOF:
+			break token_loop
+		case .Text:
+			instruction.kind = .Static
+			instruction.text = token.text
+		case .Variable:
+			instruction.kind = .Slot
+			instruction.field_path = {token.text}
+		}
+
+		append(&instructions, instruction)
 	}
+
+	template.instructions = instructions[:]
 
 	return
 }
@@ -81,7 +96,8 @@ File_Error :: enum {
 }
 
 Template :: struct {
-	source: []byte,
+	source:       string,
+	instructions: []Instruction,
 }
 
 Tokenizer_Error :: enum {
@@ -90,7 +106,7 @@ Tokenizer_Error :: enum {
 
 
 Tokenizer :: struct {
-	source: []byte,
+	source: string,
 	pos:    int,
 }
 
@@ -102,5 +118,16 @@ Token_Kind :: enum {
 
 Token :: struct {
 	kind: Token_Kind,
-	text: []byte,
+	text: string,
+}
+
+Instruction :: struct {
+	kind:       Instruction_Kind,
+	text:       string,
+	field_path: []string,
+}
+
+Instruction_Kind :: enum {
+	Static,
+	Slot,
 }
