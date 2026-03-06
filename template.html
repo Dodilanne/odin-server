@@ -9,7 +9,18 @@
 
 <body>
   <h1>{{title}}</h1>
-  <p>{{body}}</p>
+  {{#if default_body}}
+  <p>This is the default body</p>
+  {{:else}}
+  <p>
+    {{body}}
+    {{#if show_footer}}
+  <footer>
+    <p>This is the footer</p>
+  </footer>
+  {{/if}}
+  </p>
+  {{/if}}
 </body>
 
 </html>
