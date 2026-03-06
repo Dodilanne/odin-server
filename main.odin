@@ -43,19 +43,27 @@ compile_template :: proc(path: string) -> (template: Template, err: Template_Err
 	defer delete(block_stack)
 
 	instructions := make([dynamic]Instruction)
+	strip_next_static := false
 
 	token_loop: for {
 		token := get_next_token(&tokenizer) or_return
 
 		instruction: Maybe(Instruction)
 
-		switch token.kind {
+		#partial switch token.kind {
 		case .EOF:
 			break token_loop
 		case .Text:
+			text := token.text
+
+			if strip_next_static {
+				strip_next_static = false
+				text = strip_whitespace(text)
+			}
+
 			instruction = Instruction {
 				kind = .Static,
-				text = token.text,
+				text = text,
 			}
 		case .Open_Tag:
 			next_token := get_next_token(&tokenizer) or_return
@@ -75,7 +83,9 @@ compile_template :: proc(path: string) -> (template: Template, err: Template_Err
 				break
 			}
 
-			if next_token.kind == .Open_If {
+
+			#partial switch next_token.kind {
+			case .Open_If:
 				next_token = get_next_token(&tokenizer) or_return
 
 				instr_kind: Instruction_Kind
@@ -104,13 +114,7 @@ compile_template :: proc(path: string) -> (template: Template, err: Template_Err
 				}
 
 				append(&block_stack, Block_Stack_Entry{kind = .If, idx = len(instructions)})
-
-
-				break
-			}
-
-
-			if next_token.kind == .Else {
+			case .Else:
 				close_token := get_next_token(&tokenizer) or_return
 				if close_token.kind != .Close_Tag {
 					err = .Missing_Close_Tag
@@ -134,11 +138,7 @@ compile_template :: proc(path: string) -> (template: Template, err: Template_Err
 				}
 
 				append(&block_stack, Block_Stack_Entry{kind = .Else, idx = len(instructions)})
-
-				break
-			}
-
-			if next_token.kind == .Close_If {
+			case .Close_If:
 				close_token := get_next_token(&tokenizer) or_return
 				if close_token.kind != .Close_Tag {
 					err = .Missing_Close_Tag
@@ -152,14 +152,14 @@ compile_template :: proc(path: string) -> (template: Template, err: Template_Err
 				}
 
 				instructions[block.idx].jump = len(instructions)
-
-				break
+			case:
+				err = .Invalid_Token
+				return
 			}
-		case .Close_Tag:
-		case .Open_If:
-		case .Not:
-		case .Else:
-		case .Close_If:
+
+			strip_control_flow_line(&instructions)
+			strip_next_static = true
+		case:
 			err = .Invalid_Token
 			return
 		}
@@ -172,6 +172,37 @@ compile_template :: proc(path: string) -> (template: Template, err: Template_Err
 	template.instructions = instructions[:]
 
 	return
+}
+
+strip_whitespace :: proc(text: string) -> string {
+	pos := 0
+	for pos < len(text) && (text[pos] == ' ' || text[pos] == '\t') {
+		pos += 1
+	}
+	if pos < len(text) && text[pos] == '\n' {
+		return text[pos + 1:]
+	}
+	return text
+}
+
+strip_control_flow_line :: proc(instructions: ^[dynamic]Instruction) {
+	if len(instructions) == 0 {
+		return
+	}
+
+	last := &instructions[len(instructions) - 1]
+	if last.kind != .Static {
+		return
+	}
+
+	text := last.text
+	pos := len(text)
+	for pos > 0 && (text[pos - 1] == ' ' || text[pos - 1] == '\t') {
+		pos -= 1
+	}
+	if pos == 0 || text[pos - 1] == '\n' {
+		last.text = text[:pos]
+	}
 }
 
 get_next_token :: proc(t: ^Tokenizer) -> (token: Token, err: Tokenizer_Error) {
