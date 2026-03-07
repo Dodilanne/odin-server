@@ -59,7 +59,7 @@ compile_template :: proc(path: string) -> (template: Template, err: Compile_Erro
 		source = template.source,
 	}
 
-	block_stack := make([dynamic]Block_Stack_Entry, 16)
+	block_stack := make([dynamic]Block_Stack_Entry, 0, 16)
 	defer delete(block_stack)
 
 	instructions := make([dynamic]Instruction)
