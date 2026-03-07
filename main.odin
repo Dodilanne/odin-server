@@ -8,28 +8,36 @@ import "core:strings"
 import "core:testing"
 
 main :: proc() {
-	template, err := compile_template("template.html")
+	err := run_app()
 	if err != nil {
 		fmt.println(err)
 		os.exit(1)
 	}
+}
+
+run_app :: proc() -> (err: App_Error) {
+	template := compile_template("template.html") or_return
 
 	data := struct {
 		title:        string,
 		body:         string,
 		show_footer:  int,
 		default_body: string,
+		names:        []string,
 	} {
 		title       = "The Title",
 		body        = "The Body",
 		show_footer = 1,
+		names       = {"dodi", "juju", "alex"},
 	}
 
-	rendered := render_template(&template, &data)
+	rendered := render_template(&template, &data) or_return
 	fmt.println(rendered)
+
+	return
 }
 
-compile_template :: proc(path: string) -> (template: Template, err: Template_Error) {
+compile_template :: proc(path: string) -> (template: Template, err: Compile_Error) {
 	source, ok := os.read_entire_file(path)
 	if !ok do return template, .File_Error
 
@@ -77,7 +85,7 @@ compile_template :: proc(path: string) -> (template: Template, err: Template_Err
 
 				instruction = Instruction {
 					kind = .Slot,
-					path = strings.split(next_token.text, ".") or_return,
+					path = split_path(next_token.text) or_return,
 				}
 
 				break
@@ -110,7 +118,7 @@ compile_template :: proc(path: string) -> (template: Template, err: Template_Err
 
 				instruction = Instruction {
 					kind = instr_kind,
-					path = strings.split(next_token.text, ".") or_return,
+					path = split_path(next_token.text) or_return,
 				}
 
 				append(&block_stack, Block_Stack_Entry{kind = .If, idx = len(instructions)})
@@ -152,6 +160,48 @@ compile_template :: proc(path: string) -> (template: Template, err: Template_Err
 				}
 
 				instructions[block.idx].jump = len(instructions)
+			case .Open_Each:
+				next_token = get_next_token(&tokenizer) or_return
+				if next_token.kind != .Text {
+					err = .Missing_Tag_Body
+					return
+				}
+
+				close_token := get_next_token(&tokenizer) or_return
+				if close_token.kind != .Close_Tag {
+					err = .Missing_Close_Tag
+					return
+				}
+
+				instruction = Instruction {
+					kind = .Begin_Each,
+					path = split_path(next_token.text) or_return,
+				}
+
+				append(&block_stack, Block_Stack_Entry{kind = .Each, idx = len(instructions)})
+			case .Close_Each:
+				close_token := get_next_token(&tokenizer) or_return
+				if close_token.kind != .Close_Tag {
+					err = .Missing_Close_Tag
+					return
+				}
+
+				block, exists := pop_safe(&block_stack)
+				if !exists {
+					err = .Missing_Open_Tag
+					return
+				}
+				if block.kind != .Each {
+					err = .Invalid_Token
+					return
+				}
+
+				instructions[block.idx].jump = len(instructions) + 1
+
+				instruction = Instruction {
+					kind = .End_Each,
+					jump = block.idx,
+				}
 			case:
 				err = .Invalid_Token
 				return
@@ -172,6 +222,12 @@ compile_template :: proc(path: string) -> (template: Template, err: Template_Err
 	template.instructions = instructions[:]
 
 	return
+}
+
+split_path :: proc(path: string) -> ([]string, mem.Allocator_Error) {
+	trimmed := strings.trim_prefix(path, ".")
+	if trimmed == "" do return {}, nil
+	return strings.split(trimmed, ".")
 }
 
 strip_whitespace :: proc(text: string) -> string {
@@ -241,6 +297,18 @@ do_get_next_token :: proc(t: ^Tokenizer) -> (token: Token, err: Tokenizer_Error)
 		return
 	}
 
+	if strings.has_prefix(rest, "#each ") {
+		token.kind = .Open_Each
+		t.pos += 6
+		return
+	}
+
+	if strings.has_prefix(rest, "/each") {
+		token.kind = .Close_Each
+		t.pos += 5
+		return
+	}
+
 	if strings.has_prefix(rest, ":else") {
 		token.kind = .Else
 		t.pos += 5
@@ -268,18 +336,28 @@ do_get_next_token :: proc(t: ^Tokenizer) -> (token: Token, err: Tokenizer_Error)
 	return
 }
 
-render_template :: proc(template: ^Template, data: any) -> string {
+render_template :: proc(
+	template: ^Template,
+	root_data: any,
+) -> (
+	rendered: string,
+	err: Render_Error,
+) {
 	b := strings.builder_make()
+
+	stack := [8]any{}
+	stack[0] = root_data
+	stack_idx := 0
 
 	ip := 0
 	for ip < len(template.instructions) {
-		instruction := template.instructions[ip]
+		instruction := &template.instructions[ip]
 
-		switch instruction.kind {
+		#partial switch instruction.kind {
 		case .Static:
 			strings.write_string(&b, instruction.text)
 		case .Slot:
-			value := resolve_field(data, instruction.path)
+			value := resolve_field(stack[stack_idx], instruction.path)
 			if str, ok := value.(string); ok {
 				strings.write_string(&b, str)
 			} else if value != nil {
@@ -289,23 +367,84 @@ render_template :: proc(template: ^Template, data: any) -> string {
 			ip = instruction.jump
 			continue
 		case .If_Truthy:
-			value := resolve_field(data, instruction.path)
+			value := resolve_field(stack[stack_idx], instruction.path)
 			if is_truthy(value) {
 				ip = instruction.jump
 				continue
 			}
 		case .If_Falsy:
-			value := resolve_field(data, instruction.path)
+			value := resolve_field(stack[stack_idx], instruction.path)
 			if !is_truthy(value) {
 				ip = instruction.jump
 				continue
 			}
+		case .Begin_Each:
+			data := stack[stack_idx]
+			value := resolve_field(data, instruction.path)
+
+			elem := get_iterable_element(value, instruction.it)
+			if elem == nil {
+				instruction.it = 0
+				ip = instruction.jump
+				continue
+			}
+
+			stack_idx += 1
+			if stack_idx == len(stack) {
+				err = .Max_Nested_Each_Reached
+				return
+			}
+
+			stack[stack_idx] = elem
+
+			instruction.it += 1
+		case .End_Each:
+			ip = instruction.jump
+			stack_idx -= 1
+			continue
 		}
 
 		ip += 1
 	}
 
-	return strings.to_string(b)
+	rendered = strings.to_string(b)
+	return
+}
+
+get_iterable_element :: proc(v: any, idx: int) -> any {
+	if v == nil do return nil
+
+	val := v
+	if reflect.is_pointer(type_info_of(val.id)) {
+		ptr := (^rawptr)(val.data)^
+		if ptr == nil do return nil
+		val = reflect.deref(val)
+	}
+
+	ti := reflect.type_info_base(type_info_of(val.id))
+
+	#partial switch info in ti.variant {
+	case reflect.Type_Info_String:
+		str := (^string)(val.data)^
+		if idx > len(str) - 1 do return nil
+		return str[idx]
+	case reflect.Type_Info_Slice:
+		raw := (^mem.Raw_Slice)(val.data)^
+		if idx > raw.len - 1 do return nil
+		elem_ptr := rawptr(uintptr(raw.data) + uintptr(idx * info.elem_size))
+		return any{elem_ptr, info.elem.id}
+	case reflect.Type_Info_Dynamic_Array:
+		raw := (^mem.Raw_Dynamic_Array)(val.data)^
+		if idx > raw.len - 1 do return nil
+		elem_ptr := rawptr(uintptr(raw.data) + uintptr(idx * info.elem_size))
+		return any{elem_ptr, info.elem.id}
+	case reflect.Type_Info_Array:
+		if idx > info.count - 1 do return nil
+		elem_ptr := rawptr(uintptr(val.data) + uintptr(idx * info.elem_size))
+		return any{elem_ptr, info.elem.id}
+	}
+
+	return nil
 }
 
 is_truthy :: proc(v: any) -> bool {
@@ -343,6 +482,10 @@ is_truthy :: proc(v: any) -> bool {
 }
 
 resolve_field :: proc(data: any, path: []string) -> any {
+	if len(path) == 0 {
+		return data
+	}
+
 	current := data
 
 	for name in path {
@@ -378,7 +521,12 @@ test_resolve_field :: proc(t: ^testing.T) {
 	testing.expect_value(t, resolve_field(data, {"ptr"}).(^Info), data.ptr)
 }
 
-Template_Error :: union {
+App_Error :: union {
+	Compile_Error,
+	Render_Error,
+}
+
+Compile_Error :: union {
 	File_Error,
 	Tokenizer_Error,
 	mem.Allocator_Error,
@@ -400,7 +548,6 @@ Tokenizer_Error :: enum {
 	Invalid_Token,
 }
 
-
 Tokenizer :: struct {
 	source: string,
 	pos:    int,
@@ -416,6 +563,8 @@ Token_Kind :: enum {
 	Open_If,
 	Else,
 	Close_If,
+	Open_Each,
+	Close_Each,
 }
 
 Token :: struct {
@@ -428,6 +577,7 @@ Instruction :: struct {
 	text: string,
 	path: []string,
 	jump: int,
+	it:   int,
 }
 
 Instruction_Kind :: enum {
@@ -435,6 +585,8 @@ Instruction_Kind :: enum {
 	Slot,
 	If_Truthy,
 	If_Falsy,
+	Begin_Each,
+	End_Each,
 	Jump,
 }
 
@@ -442,6 +594,11 @@ Block_Stack_Entry :: struct {
 	kind: enum {
 		If,
 		Else,
+		Each,
 	},
 	idx:  int,
+}
+
+Render_Error :: enum {
+	Max_Nested_Each_Reached,
 }
