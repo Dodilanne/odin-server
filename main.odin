@@ -357,13 +357,16 @@ render_template :: proc(
 ) {
 	b := strings.builder_make()
 
+	iter_state := make([]int, len(template.instructions))
+	defer delete(iter_state)
+
 	stack := [8]any{}
 	stack[0] = root_data
 	stack_idx := 0
 
 	ip := 0
 	for ip < len(template.instructions) {
-		instruction := &template.instructions[ip]
+		instruction := template.instructions[ip]
 
 		#partial switch instruction.kind {
 		case .Static:
@@ -394,9 +397,9 @@ render_template :: proc(
 			data := stack[stack_idx]
 			value := resolve_field(data, instruction.path)
 
-			elem := get_iterable_element(value, instruction.it)
+			elem := get_iterable_element(value, iter_state[ip])
 			if elem == nil {
-				instruction.it = 0
+				iter_state[ip] = 0
 				ip = instruction.jump
 				continue
 			}
@@ -409,7 +412,7 @@ render_template :: proc(
 
 			stack[stack_idx] = elem
 
-			instruction.it += 1
+			iter_state[ip] += 1
 		case .End_Each:
 			ip = instruction.jump
 			stack_idx -= 1
@@ -597,7 +600,6 @@ Instruction :: struct {
 	text: string,
 	path: []string,
 	jump: int,
-	it:   int,
 }
 
 Instruction_Kind :: enum {
