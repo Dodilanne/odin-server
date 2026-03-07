@@ -268,7 +268,7 @@ strip_control_flow_line :: proc(instructions: ^[dynamic]Instruction) {
 	for pos > 0 && (text[pos - 1] == ' ' || text[pos - 1] == '\t') {
 		pos -= 1
 	}
-	if pos == 0 || text[pos - 1] == '\n' {
+	if pos > 0 && text[pos - 1] == '\n' {
 		last.text = text[:pos]
 	}
 }
