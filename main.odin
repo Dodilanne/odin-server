@@ -355,7 +355,7 @@ render_template :: proc(
 	rendered: string,
 	err: Render_Error,
 ) {
-	b := strings.builder_make()
+	b := strings.builder_make(0, len(template.source))
 
 	iter_state := make([]int, len(template.instructions))
 	defer delete(iter_state)
