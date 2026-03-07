@@ -29,25 +29,9 @@ main :: proc() {
 
 run_app :: proc() -> (err: App_Error) {
 	template := compile_template("template.html") or_return
-	defer {
-		for &i in template.instructions do delete(i.path)
-		delete(template.instructions)
-		delete(template.source)
-	}
+	defer delete_template(&template)
 
-	data := struct {
-		title:        string,
-		body:         string,
-		show_footer:  int,
-		default_body: string,
-		people:       []struct {
-			info:    ^struct {
-				name: string,
-				age:  int,
-			},
-			parents: []string,
-		},
-	} {
+	data := Page_Data {
 		title       = "The Title",
 		body        = "The Body",
 		show_footer = 1,
@@ -509,6 +493,14 @@ is_truthy :: proc(v: any) -> bool {
 	return true
 }
 
+delete_template :: proc(t: ^Template) {
+	for &instruction in t.instructions {
+		delete(instruction.path)
+	}
+	delete(t.instructions)
+	delete(t.source)
+}
+
 resolve_field :: proc(data: any, path: []string) -> any {
 	if len(path) == 0 {
 		return data
@@ -629,4 +621,18 @@ Block_Stack_Entry :: struct {
 
 Render_Error :: enum {
 	Max_Nested_Each_Reached,
+}
+
+Page_Data :: struct {
+	title:        string,
+	body:         string,
+	show_footer:  int,
+	default_body: string,
+	people:       []struct {
+		info:    ^struct {
+			name: string,
+			age:  int,
+		},
+		parents: []string,
+	},
 }
