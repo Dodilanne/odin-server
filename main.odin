@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:mem"
 import "core:os"
 import "core:reflect"
+import "core:encoding/entity"
 import "core:strings"
 import "core:testing"
 
@@ -374,9 +375,14 @@ render_template :: proc(
 		case .Slot:
 			value := resolve_field(stack[stack_idx], instruction.path)
 			if str, ok := value.(string); ok {
-				strings.write_string(&b, str)
+				escaped, was_allocation := entity.escape_html(str)
+				strings.write_string(&b, escaped)
+				if was_allocation do delete(escaped)
 			} else if value != nil {
-				fmt.sbprint(&b, value)
+				raw := fmt.tprint(value)
+				escaped, was_allocation := entity.escape_html(raw)
+				strings.write_string(&b, escaped)
+				if was_allocation do delete(escaped)
 			}
 		case .Jump:
 			ip = instruction.jump
