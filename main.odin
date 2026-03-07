@@ -111,10 +111,10 @@ compile_template :: proc(path: string) -> (template: Template, err: Compile_Erro
 				instr_kind: Instruction_Kind
 
 				if next_token.kind == .Not {
-					instr_kind = .If_Truthy
+					instr_kind = .If_Falsy
 					next_token = get_next_token(&tokenizer) or_return
 				} else {
-					instr_kind = .If_Falsy
+					instr_kind = .If_Truthy
 				}
 
 				if next_token.kind != .Text {
@@ -380,13 +380,13 @@ render_template :: proc(
 			continue
 		case .If_Truthy:
 			value := resolve_field(stack[stack_idx], instruction.path)
-			if is_truthy(value) {
+			if !is_truthy(value) {
 				ip = instruction.jump
 				continue
 			}
 		case .If_Falsy:
 			value := resolve_field(stack[stack_idx], instruction.path)
-			if !is_truthy(value) {
+			if is_truthy(value) {
 				ip = instruction.jump
 				continue
 			}
