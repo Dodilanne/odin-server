@@ -275,7 +275,7 @@ strip_control_flow_line :: proc(instructions: ^[dynamic]Instruction) {
 
 get_next_token :: proc(t: ^Tokenizer) -> (token: Token, err: Tokenizer_Error) {
 	token = do_get_next_token(t) or_return
-	t.prev = &token
+	t.prev = token
 	return
 }
 
@@ -283,7 +283,7 @@ get_next_token :: proc(t: ^Tokenizer) -> (token: Token, err: Tokenizer_Error) {
 do_get_next_token :: proc(t: ^Tokenizer) -> (token: Token, err: Tokenizer_Error) {
 	if t.pos >= len(t.source) do return
 
-	if t.prev != nil && t.prev.kind == .Open_If && t.source[t.pos] == '!' {
+	if t.prev.kind == .Open_If && t.source[t.pos] == '!' {
 		token.kind = .Not
 		t.pos += 1
 		return
@@ -571,7 +571,7 @@ Tokenizer_Error :: enum {
 Tokenizer :: struct {
 	source: string,
 	pos:    int,
-	prev:   ^Token,
+	prev:   Token,
 }
 
 Token_Kind :: enum {
