@@ -23,12 +23,21 @@ run_app :: proc() -> (err: App_Error) {
 		body:         string,
 		show_footer:  int,
 		default_body: string,
-		names:        []string,
+		people:       []struct {
+			info:    ^struct {
+				name: string,
+				age:  int,
+			},
+			parents: []string,
+		},
 	} {
 		title       = "The Title",
 		body        = "The Body",
 		show_footer = 1,
-		names       = {"dodi", "juju", "alex"},
+		people      = {
+			{info = &{name = "dodi", age = 27}, parents = {"mj", "eric"}},
+			{info = &{name = "alex", age = 24}},
+		},
 	}
 
 	rendered := render_template(&template, &data) or_return

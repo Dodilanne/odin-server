@@ -23,10 +23,20 @@
   {{/if}}
   </p>
   {{/if}}
-  {{#if names}}
+  {{#if people}}
   <ul>
-    {{#each names}}
-    <li>{{.}}</li>
+    {{#each people}}
+    <li>
+      name: {{info.name}} age: {{info.age}}
+      {{#if parents}}
+      <ol>
+        Parents:
+        {{#each parents}}
+        <li>{{.}}</li>
+        {{/each}}
+      </ol>
+      {{/if}}
+    </li>
     {{/each}}
   </ul>
   {{/if}}
