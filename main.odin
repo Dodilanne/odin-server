@@ -4,7 +4,6 @@ import "core:fmt"
 import "core:mem"
 import "core:os"
 import "core:reflect"
-import "core:encoding/entity"
 import "core:strings"
 import "core:testing"
 
@@ -375,14 +374,9 @@ render_template :: proc(
 		case .Slot:
 			value := resolve_field(stack[stack_idx], instruction.path)
 			if str, ok := value.(string); ok {
-				escaped, was_allocation := entity.escape_html(str)
-				strings.write_string(&b, escaped)
-				if was_allocation do delete(escaped)
+				write_escaped_html(&b, str)
 			} else if value != nil {
-				raw := fmt.tprint(value)
-				escaped, was_allocation := entity.escape_html(raw)
-				strings.write_string(&b, escaped)
-				if was_allocation do delete(escaped)
+				write_escaped_html(&b, fmt.tprint(value))
 			}
 		case .Jump:
 			ip = instruction.jump
@@ -430,6 +424,19 @@ render_template :: proc(
 
 	rendered = strings.to_string(b)
 	return
+}
+
+write_escaped_html :: proc(b: ^strings.Builder, s: string) {
+	for c in s {
+		switch c {
+		case '&':  strings.write_string(b, "&amp;")
+		case '<':  strings.write_string(b, "&lt;")
+		case '>':  strings.write_string(b, "&gt;")
+		case '"':  strings.write_string(b, "&quot;")
+		case '\'': strings.write_string(b, "&#39;")
+		case:      strings.write_rune(b, c)
+		}
+	}
 }
 
 get_iterable_element :: proc(v: any, idx: int) -> any {
