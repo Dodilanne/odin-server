@@ -335,8 +335,8 @@ do_get_next_token :: proc(t: ^Tokenizer) -> (token: Token, err: Tokenizer_Error)
 
 	start := t.pos
 	for t.pos < len(t.source) {
-		rest = t.source[t.pos:]
-		if strings.has_prefix(rest, "{{") || strings.has_prefix(rest, "}}") {
+		c := t.source[t.pos]
+		if (c == '{' || c == '}') && t.pos + 1 < len(t.source) && t.source[t.pos + 1] == c {
 			break
 		}
 		t.pos += 1
