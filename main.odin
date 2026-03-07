@@ -8,7 +8,19 @@ import "core:strings"
 import "core:testing"
 
 main :: proc() {
+	track: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&track, context.allocator)
+	context.allocator = mem.tracking_allocator(&track)
+
 	err := run_app()
+
+	if len(track.allocation_map) > 0 {
+		fmt.println()
+		for _, v in track.allocation_map {
+			fmt.printf("%v Leaked %v bytes.\n", v.location, v.size)
+		}
+	}
+
 	if err != nil {
 		fmt.println(err)
 		os.exit(1)
@@ -17,6 +29,11 @@ main :: proc() {
 
 run_app :: proc() -> (err: App_Error) {
 	template := compile_template("template.html") or_return
+	defer {
+		for &i in template.instructions do delete(i.path)
+		delete(template.instructions)
+		delete(template.source)
+	}
 
 	data := struct {
 		title:        string,
@@ -41,6 +58,8 @@ run_app :: proc() -> (err: App_Error) {
 	}
 
 	rendered := render_template(&template, &data) or_return
+	defer delete(rendered)
+
 	fmt.println(rendered)
 
 	return
