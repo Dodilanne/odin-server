@@ -8,26 +8,40 @@ import "core:thread"
 import "core:time"
 
 Options :: struct {
-	threads: int `usage:"number of worker threads (0 = use all cores)"`,
-	port:    int `usage:"listen port (default: 8080)"`,
+	num_threads: int `args:"name=threads" usage:"number of worker threads (0 = use all cores)"`,
+	port:        int `usage:"listen port (default: 8080)"`,
+}
+
+Thread_Result :: struct {
+	thread_index: int,
+	error:        Thread_Error,
+}
+
+Thread_Error :: union #shared_nil {
+	_Thread_Error,
+}
+
+_Thread_Error :: enum {
+	None = 0,
+	Ouch,
 }
 
 main :: proc() {
 	opts: Options
 	flags.parse_or_exit(&opts, os.args)
-	if opts.threads <= 0 do opts.threads = si.cpu.physical_cores
+	if opts.num_threads <= 0 do opts.num_threads = si.cpu.physical_cores
 	if opts.port <= 0 do opts.port = 8080
 
-	threads := make([]^thread.Thread, opts.threads)
+	thread_results := make([]Thread_Result, opts.num_threads)
+	defer delete(thread_results)
+
+	threads := make([]^thread.Thread, opts.num_threads)
 	defer delete(threads)
 
-	for i in 0 ..< opts.threads {
-		if t := thread.create(worker); t != nil {
-			t.init_context = context
-			t.user_index = i
-			threads[i] = t
-			thread.start(t)
-		}
+	for i in 0 ..< opts.num_threads {
+		thread_results[i].thread_index = i
+		t := thread.create_and_start_with_data(&thread_results[i], worker)
+		threads[i] = t
 	}
 
 	fmt.println("waiting for threads to finish")
@@ -35,10 +49,30 @@ main :: proc() {
 	thread.join_multiple(..threads)
 
 	fmt.println("done")
+
+	for result in thread_results {
+		if result.error != nil {
+			fmt.printfln("Worker %d failed with error %v", result.thread_index, result.error)
+		}
+	}
 }
 
-worker :: proc(t: ^thread.Thread) {
-	fmt.printfln("worker %d started", t.user_index)
-	time.sleep(time.Duration(t.user_index) * time.Second)
-	fmt.printfln("worker %d done", t.user_index)
+worker :: proc(ptr: rawptr) {
+	t := (^Thread_Result)(ptr)
+
+	fmt.printfln("worker %d started", t.thread_index)
+
+	t.error = do_work(t.thread_index)
+
+	fmt.printfln("worker %d done", t.thread_index)
+}
+
+do_work :: proc(thread_index: int) -> (err: Thread_Error) {
+	if thread_index == 1 {
+		return .Ouch
+	}
+
+	time.sleep(time.Duration(thread_index) * time.Second)
+
+	return
 }
