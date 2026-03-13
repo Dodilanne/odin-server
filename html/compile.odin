@@ -8,11 +8,11 @@ Compile_Error :: union {
 	File_Error,
 	Tokenizer_Error,
 	mem.Allocator_Error,
+	os.Error,
 }
 
 compile :: proc(path: string) -> (template: Template, err: Compile_Error) {
-	source, ok := os.read_entire_file(path)
-	if !ok do return template, .File_Error
+	source := os.read_entire_file_from_path(path, context.allocator) or_return
 
 	template.source = string(source)
 

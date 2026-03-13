@@ -29,7 +29,13 @@ _Thread_Error :: enum {
 main :: proc() {
 	opts: Options
 	flags.parse_or_exit(&opts, os.args)
-	if opts.num_threads <= 0 do opts.num_threads = si.cpu.physical_cores
+	if opts.num_threads <= 0 {
+		if physical, _, ok := si.cpu_core_count(); ok {
+			opts.num_threads = physical
+		} else {
+			opts.num_threads = 1
+		}
+	}
 	if opts.port <= 0 do opts.port = 8080
 
 	thread_results := make([]Thread_Result, opts.num_threads)
