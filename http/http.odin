@@ -7,86 +7,41 @@ import "core:fmt"
 import "core:nbio"
 import "core:net"
 import "core:os"
-import si "core:sys/info"
-import "core:thread"
 
 Options :: struct {
-	num_threads: int `args:"name=threads" usage:"number of worker threads (0 = use all cores)"`,
-	port:        int `usage:"listen port (default: 8080)"`,
-}
-
-Thread_Data :: struct {
-	thread_index: int,
-	opts:         ^Options,
-	// error is populated by the thread itself: errors are handled by the orchestrator after all threads exit.
-	err:          Thread_Error,
-}
-
-Thread_Error :: union #shared_nil {
-	_Thread_Error,
-	nbio.General_Error,
-	net.Network_Error,
-	net.Accept_Error,
-	net.Recv_Error,
-	net.Send_Error,
-	runtime.Allocator_Error,
-}
-
-_Thread_Error :: enum {
-	None = 0,
-	Ouch,
+	port: int `usage:"listen port (default: 8080)"`,
 }
 
 main :: proc() {
 	opts: Options
 	flags.parse_or_exit(&opts, os.args)
-	if opts.num_threads <= 0 {
-		if physical, _, ok := si.cpu_core_count(); ok {
-			opts.num_threads = physical
-		} else {
-			opts.num_threads = 1
-		}
-	}
 	if opts.port <= 0 do opts.port = 8080
 
-	thread_data := make([]Thread_Data, opts.num_threads)
-	defer delete(thread_data)
-
-	threads := make([]^thread.Thread, opts.num_threads)
-	defer delete(threads)
-
-	for i in 0 ..< opts.num_threads {
-		thread_data[i].thread_index = i
-		thread_data[i].opts = &opts
-		t := thread.create_and_start_with_data(&thread_data[i], worker)
-		threads[i] = t
+	server := Server {
+		thread_data = &Thread_Data{opts = &opts},
 	}
 
-	fmt.println("waiting for threads to finish")
-
-	thread.join_multiple(..threads)
-
-	fmt.println("done")
-
-	for result in thread_data {
-		if result.err != nil {
-			fmt.printfln("Worker %d failed with error %v", result.thread_index, result.err)
-		}
+	if err := run(&server); err != nil {
+		fmt.println(err)
+		os.exit(1)
 	}
 }
 
-worker :: proc(ptr: rawptr) {
-	data := (^Thread_Data)(ptr)
+Thread_Data :: struct {
+	opts: ^Options,
+	// error is populated by the thread itself: errors are handled by the orchestrator after all threads exit.
+	err:  Thread_Error,
+}
 
-	fmt.printfln("worker %d started", data.thread_index)
-
-	data.err = do_work(data)
-	if data.err == nil {
-		fmt.printfln("worker %d done", data.thread_index)
-	} else {
-		fmt.printfln("worker %d done with err %v", data.thread_index, data.err)
-	}
-
+Thread_Error :: union #shared_nil {
+	nbio.General_Error,
+	net.Network_Error,
+	net.Accept_Error,
+	net.Recv_Error,
+	net.Send_Error,
+	net.Create_Socket_Error,
+	net.Bind_Error,
+	runtime.Allocator_Error,
 }
 
 Server :: struct {
@@ -102,20 +57,18 @@ Connection :: struct {
 	buf:    [50]byte,
 }
 
-do_work :: proc(data: ^Thread_Data) -> (err: Thread_Error) {
+run :: proc(server: ^Server) -> (err: Thread_Error) {
 	nbio.acquire_thread_event_loop() or_return
 	defer nbio.release_thread_event_loop()
 
-	server := Server {
-		thread_data = data,
-	}
-
-	socket := nbio.listen_tcp({nbio.IP4_Any, data.opts.port}) or_return
+	socket := nbio.listen_tcp({nbio.IP4_Any, server.thread_data.opts.port}) or_return
 	server.socket = socket
 
-	nbio.accept_poly(socket, &server, on_accept)
+	nbio.accept_poly(socket, server, on_accept)
 
-	return nbio.run()
+	nbio.run() or_return
+
+	return server.thread_data.err
 }
 
 on_accept :: proc(op: ^nbio.Operation, server: ^Server) {
@@ -131,7 +84,7 @@ do_accept :: proc(op: ^nbio.Operation, server: ^Server) -> (err: Thread_Error) {
 
 	nbio.accept_poly(server.socket, server, on_accept)
 
-	fmt.printfln("new conn on thread %d!", server.thread_data.thread_index)
+	fmt.printfln("new conn")
 	conn := xar.push_back_elem_and_get_ptr(
 		&server.connections,
 		Connection{server = server, socket = op.accept.client},
