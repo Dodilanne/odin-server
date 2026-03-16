@@ -2,29 +2,13 @@ package http
 
 import "base:runtime"
 import "core:container/xar"
-import "core:flags"
 import "core:fmt"
 import "core:nbio"
 import "core:net"
-import "core:os"
+
 
 Options :: struct {
 	port: int `usage:"listen port (default: 8080)"`,
-}
-
-main :: proc() {
-	opts: Options
-	flags.parse_or_exit(&opts, os.args)
-	if opts.port <= 0 do opts.port = 8080
-
-	server := Server {
-		thread_data = &Thread_Data{opts = &opts},
-	}
-
-	if err := run(&server); err != nil {
-		fmt.println(err)
-		os.exit(1)
-	}
 }
 
 Thread_Data :: struct {
@@ -54,7 +38,7 @@ Server :: struct {
 Connection :: struct {
 	server: ^Server,
 	socket: nbio.TCP_Socket,
-	buf:    [50]byte,
+	buf:    [4096 * 4]byte, // 16KB
 }
 
 run :: proc(server: ^Server) -> (err: Thread_Error) {
@@ -114,8 +98,17 @@ do_recv :: proc(op: ^nbio.Operation, conn: ^Connection) -> (err: Thread_Error) {
 		return
 	}
 
-	fmt.println("echoing back")
-	nbio.send_poly(conn.socket, {conn.buf[:op.recv.received]}, conn, on_sent)
+	data := conn.buf[:op.recv.received]
+
+	request, parse_err := parse_request(data)
+	if parse_err != nil {
+		nbio.close(conn.socket)
+		return
+	}
+
+	fmt.printfln("request: %s", request)
+
+	nbio.send_poly(conn.socket, {data}, conn, on_sent)
 
 	return
 }
@@ -131,7 +124,6 @@ do_sent :: proc(op: ^nbio.Operation, conn: ^Connection) -> (err: Thread_Error) {
 		return op.send.err
 	}
 
-	fmt.println("setting up next recv")
 	nbio.recv_poly(conn.socket, {conn.buf[:]}, conn, on_recv)
 
 	return

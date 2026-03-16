@@ -1,17 +1,28 @@
 package main
 
+import "core:flags"
 import "core:fmt"
 import "core:mem"
 import "core:os"
 
 import "./html"
+import "./http"
+
 
 main :: proc() {
 	track: mem.Tracking_Allocator
 	mem.tracking_allocator_init(&track, context.allocator)
 	context.allocator = mem.tracking_allocator(&track)
 
-	err := run_app()
+
+	opts: http.Options
+	flags.parse_or_exit(&opts, os.args)
+	if opts.port <= 0 do opts.port = 8080
+
+	server := http.Server {
+		thread_data = &http.Thread_Data{opts = &opts},
+	}
+	err := http.run(&server)
 
 	if len(track.allocation_map) > 0 {
 		fmt.println()
