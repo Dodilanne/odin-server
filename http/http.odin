@@ -5,6 +5,7 @@ import "core:container/xar"
 import "core:fmt"
 import "core:nbio"
 import "core:net"
+import "core:time"
 
 
 Options :: struct {
@@ -30,6 +31,7 @@ Thread_Error :: union #shared_nil {
 
 Server :: struct {
 	thread_data: ^Thread_Data,
+	quit:        bool,
 	socket:      nbio.TCP_Socket,
 	// Xar is used in favor of `[dynamic]Connection` so pointers are stable.
 	connections: xar.Array(Connection, 4),
@@ -50,7 +52,11 @@ run :: proc(server: ^Server) -> (err: Thread_Error) {
 
 	nbio.accept_poly(socket, server, on_accept)
 
-	nbio.run() or_return
+	for nbio.num_waiting() > 0 && !server.quit {
+		nbio.tick(time.Millisecond * 100) or_return
+	}
+
+	xar.destroy(&server.connections)
 
 	return server.thread_data.err
 }
@@ -100,7 +106,7 @@ do_recv :: proc(op: ^nbio.Operation, conn: ^Connection) -> (err: Thread_Error) {
 
 	data := conn.buf[:op.recv.received]
 
-	request, parse_err := parse_request(data)
+	request, parse_err := parse_request(string(data))
 	if parse_err != nil {
 		nbio.close(conn.socket)
 		return

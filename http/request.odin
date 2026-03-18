@@ -1,6 +1,7 @@
 package http
 
 import "core:fmt"
+
 Request :: struct {
 	method: Method,
 }
@@ -16,9 +17,9 @@ Parse_Request_Err :: enum {
 	Invalid_Method,
 }
 
-parse_request :: proc(data: []byte) -> (req: Request, err: Parse_Request_Err) {
+parse_request :: proc(data: string) -> (req: Request, err: Parse_Request_Err) {
 	cursor := 0
-	for true {
+	for cursor < len(data) {
 		if data[cursor] == ' ' {
 			break
 		}
@@ -37,6 +38,7 @@ parse_request :: proc(data: []byte) -> (req: Request, err: Parse_Request_Err) {
 	return
 }
 
+@(private = "file")
 parse_method :: proc(str: string) -> Method {
 	switch str {
 	case "OPTION":

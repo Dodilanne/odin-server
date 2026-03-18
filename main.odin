@@ -1,27 +1,34 @@
 package main
 
+import "base:runtime"
 import "core:flags"
 import "core:fmt"
 import "core:mem"
 import "core:os"
+import "core:sys/posix"
 
 import "./html"
 import "./http"
 
+server: http.Server
 
 main :: proc() {
 	track: mem.Tracking_Allocator
 	mem.tracking_allocator_init(&track, context.allocator)
 	context.allocator = mem.tracking_allocator(&track)
 
-
 	opts: http.Options
 	flags.parse_or_exit(&opts, os.args)
 	if opts.port <= 0 do opts.port = 8080
 
-	server := http.Server {
-		thread_data = &http.Thread_Data{opts = &opts},
-	}
+
+	server.thread_data = &http.Thread_Data{opts = &opts}
+
+	posix.signal(.SIGINT, proc "cdecl" (_: posix.Signal) {
+		context = runtime.default_context()
+		server.quit = true
+	})
+
 	err := http.run(&server)
 
 	if len(track.allocation_map) > 0 {
@@ -29,6 +36,8 @@ main :: proc() {
 		for _, v in track.allocation_map {
 			fmt.printf("%v Leaked %v bytes.\n", v.location, v.size)
 		}
+	} else {
+		fmt.println("\nNo leaks.")
 	}
 
 	if err != nil {
