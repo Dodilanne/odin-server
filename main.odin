@@ -13,14 +13,25 @@ import "./http"
 server: http.Server
 
 main :: proc() {
-	track: mem.Tracking_Allocator
-	mem.tracking_allocator_init(&track, context.allocator)
-	context.allocator = mem.tracking_allocator(&track)
+	when ODIN_DEBUG {
+		track: mem.Tracking_Allocator
+		mem.tracking_allocator_init(&track, context.allocator)
+		context.allocator = mem.tracking_allocator(&track)
+
+		defer if len(track.allocation_map) > 0 {
+			fmt.println()
+			for _, v in track.allocation_map {
+				fmt.printf("%v Leaked %v bytes.\n", v.location, v.size)
+			}
+		} else {
+			fmt.println("\nNo leaks.")
+		}
+	}
+
 
 	opts: http.Options
 	flags.parse_or_exit(&opts, os.args)
 	if opts.port <= 0 do opts.port = 8080
-
 
 	server.thread_data = &http.Thread_Data{opts = &opts}
 
@@ -30,15 +41,6 @@ main :: proc() {
 	})
 
 	err := http.run(&server)
-
-	if len(track.allocation_map) > 0 {
-		fmt.println()
-		for _, v in track.allocation_map {
-			fmt.printf("%v Leaked %v bytes.\n", v.location, v.size)
-		}
-	} else {
-		fmt.println("\nNo leaks.")
-	}
 
 	if err != nil {
 		fmt.println(err)
