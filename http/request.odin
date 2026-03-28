@@ -1,53 +1,51 @@
 package http
 
-import "core:fmt"
+import "core:strings"
 
 Request :: struct {
 	method: Method,
+	path:   []string,
+	query:  map[string]string,
 }
 
 Method :: enum {
-	Invalid,
 	Option,
 	Get,
 	Post,
 }
 
 Parse_Request_Err :: enum {
+	None,
 	Invalid_Method,
 }
 
-parse_request :: proc(data: string) -> (req: Request, err: Parse_Request_Err) {
-	cursor := 0
-	for cursor < len(data) {
-		if data[cursor] == ' ' {
-			break
-		}
-		cursor += 1
-	}
+parse_request :: proc(str: ^string) -> (request: Request, err: Parse_Request_Err) {
+	parser := Parser{str}
 
-	method_str := string(data[:cursor])
-	fmt.printfln("method: %s", method_str)
-
-	req.method = parse_method(method_str)
-	if req.method == .Invalid {
-		err = .Invalid_Method
-		return
-	}
+	parse_method(&parser, &request) or_return
 
 	return
 }
 
 @(private = "file")
-parse_method :: proc(str: string) -> Method {
-	switch str {
+parse_method :: proc(parser: ^Parser, request: ^Request) -> (err: Parse_Request_Err) {
+	field, ok := strings.fields_iterator(parser.str)
+	if !ok do return .Invalid_Method
+
+	switch field {
 	case "OPTION":
-		return .Option
+		request.method = .Option
 	case "GET":
-		return .Get
+		request.method = .Get
 	case "POST":
-		return .Post
+		request.method = .Post
 	case:
-		return .Invalid
+		err = .Invalid_Method
 	}
+	return
+}
+
+@(private = "file")
+Parser :: struct {
+	str: ^string,
 }
