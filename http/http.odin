@@ -104,10 +104,9 @@ do_recv :: proc(op: ^nbio.Operation, conn: ^Connection) -> (err: Thread_Error) {
 		return
 	}
 
-	data_buf := conn.buf[:op.recv.received]
-	data_str := string(data_buf)
+	data := conn.buf[:op.recv.received]
 
-	request, parse_err := parse_request(&data_str)
+	request, parse_err := parse_request(string(data))
 	if parse_err != nil {
 		fmt.printfln("failed to parse request: %s", parse_err)
 		nbio.close(conn.socket)
@@ -116,7 +115,7 @@ do_recv :: proc(op: ^nbio.Operation, conn: ^Connection) -> (err: Thread_Error) {
 
 	fmt.printfln("request: %s", request)
 
-	nbio.send_poly(conn.socket, {data_buf}, conn, on_sent)
+	nbio.send_poly(conn.socket, {data}, conn, on_sent)
 
 	return
 }
